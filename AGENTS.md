@@ -23,6 +23,12 @@ tasks in [`PLAN.md`](plans/PLAN.md). Conventions:
 - **One concern per module**, so features can be added incrementally.
 - **Wrap hardware/third-party libs behind an internal module** (V4L2/OpenCV, the audio device, etc.) so
   the rest of the app depends on our interface, not the library.
+- **Camera backends are swappable via the `FrameSource` interface** (`app/video/`). The POC uses the USB
+  Brio (ffmpeg/V4L2). The planned **OV5647 IR/night-vision camera is CSI, not USB**, so it needs a
+  *different backend* (libcamera — `rpicam`/`picamera2`, not MJPEG-native) plus likely **GPIO control for
+  the IR-CUT filter / IR LEDs**. When planning that work: add a new `app/video/sources/` backend and set
+  `BABYMONITOR_CAMERA=csi` — do not rewrite the stream/web layers. Read
+  [`docs/CAMERA_MIC_RUNBOOK.md`](docs/CAMERA_MIC_RUNBOOK.md) (IR-camera section) first.
 - **Module boundary check (before a module is done):** confirm `__init__.py` exposes only the intended
   interface and that internal helpers / third-party types are not leaking out.
 

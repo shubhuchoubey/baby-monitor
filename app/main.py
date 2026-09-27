@@ -21,7 +21,10 @@ def main() -> None:
     port = int(os.environ.get("BABYMONITOR_PORT", "8000"))
     # debug is off by default; enable with BABYMONITOR_DEBUG=1 during development.
     debug = os.environ.get("BABYMONITOR_DEBUG", "0") == "1"
-    app.run(host=host, port=port, debug=debug)
+    # threaded=True lets the long-lived MJPEG stream run without blocking other
+    # requests (status page, health check, a second viewer), and lets a client
+    # disconnect promptly trigger the stream generator's cleanup.
+    app.run(host=host, port=port, debug=debug, threaded=True)
 
 
 if __name__ == "__main__":
