@@ -7,15 +7,24 @@ frames by ``iter_mjpeg_frames``.
 
 This is the only module that knows about ffmpeg/V4L2 or ``/dev/video*``; the
 rest of the app depends on the ``FrameSource`` interface.
+
+ffmpeg's stderr is captured (not discarded) and forwarded, line by line, to the
+app log via :mod:`logging`, so capture failures — notably "Device or resource
+busy" (EBUSY) on the single-opener Brio — are diagnosable in ``server.log``
+instead of vanishing silently.
 """
 
 from __future__ import annotations
 
 import io
+import logging
 import subprocess
+import threading
 from collections.abc import Iterator
 
 from app.video.stream import iter_mjpeg_frames
+
+_log = logging.getLogger(__name__)
 
 _FFMPEG = "ffmpeg"
 _READ_CHUNK = 65536
@@ -36,6 +45,7 @@ class FfmpegV4L2Source:
         self.height = height
         self.fps = fps
         self._proc: subprocess.Popen[bytes] | None = None
+        self._stderr_thread: threading.Thread | None = None
 
     def _command(self) -> list[str]:
         return [
@@ -64,11 +74,34 @@ class FfmpegV4L2Source:
         if self._proc is not None:
             return
         # Safe: fixed argument list, no shell, no user-interpolated input.
+        # stderr is PIPE'd (not DEVNULL) and drained to the app log so capture
+        # failures — e.g. "Device or resource busy" (EBUSY) on the single-opener
+        # Brio — are observable in server.log instead of silently swallowed.
         self._proc = subprocess.Popen(
             self._command(),
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
         )
+        self._stderr_thread = threading.Thread(
+            target=self._drain_stderr,
+            args=(self._proc,),
+            name="ffmpeg-stderr",
+            daemon=True,
+        )
+        self._stderr_thread.start()
+
+    def _drain_stderr(self, proc: subprocess.Popen[bytes]) -> None:
+        """Forward ffmpeg's stderr, line by line, to the app log."""
+        stderr = proc.stderr
+        if stderr is None:
+            return
+        try:
+            for raw in stderr:
+                line = raw.decode("utf-8", "replace").rstrip()
+                if line:
+                    _log.warning("ffmpeg: %s", line)
+        except Exception:  # pragma: no cover - defensive against pipe teardown
+            pass
 
     def frames(self) -> Iterator[bytes]:
         if self._proc is None or self._proc.stdout is None:
@@ -95,8 +128,13 @@ class FfmpegV4L2Source:
             return
         proc = self._proc
         self._proc = None
+        stderr_thread = self._stderr_thread
+        self._stderr_thread = None
         proc.terminate()
         try:
             proc.wait(timeout=3)
         except subprocess.TimeoutExpired:
             proc.kill()
+        # The drain thread ends when the stderr pipe closes (process reaped).
+        if stderr_thread is not None and stderr_thread is not threading.current_thread():
+            stderr_thread.join(timeout=1)

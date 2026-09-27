@@ -23,8 +23,12 @@ JPEG frames — and everything above it (the MJPEG stream framing, the
 
 Public interface. Callers use:
 - ``FrameSource``   — the capture-backend interface (protocol).
-- ``mjpeg_stream``  — turn a FrameSource into an HTTP multipart MJPEG body.
 - ``get_frame_source`` — factory returning the configured backend.
+- ``CameraBroadcaster`` — single app-owned capture (one ffmpeg) that stores the
+  latest frame and broadcasts it to many viewers, dropping stale frames. The
+  app builds one and every ``/video_feed`` request subscribes to it.
+- ``mjpeg_stream``  — turn a broadcaster *subscription* into an HTTP multipart
+  MJPEG body (latest-frame only; unsubscribes on disconnect).
 - ``BOUNDARY``, ``MJPEG_CONTENT_TYPE`` — for building the HTTP response.
 
 Concrete backends (``sources/``) are internal; select them via configuration
@@ -33,6 +37,7 @@ through ``get_frame_source`` rather than importing them directly.
 
 from __future__ import annotations
 
+from app.video.broadcaster import CameraBroadcaster
 from app.video.factory import get_frame_source
 from app.video.stream import BOUNDARY, FrameSource, mjpeg_stream
 
@@ -43,6 +48,7 @@ __all__ = [
     "FrameSource",
     "mjpeg_stream",
     "get_frame_source",
+    "CameraBroadcaster",
     "BOUNDARY",
     "MJPEG_CONTENT_TYPE",
 ]

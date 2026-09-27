@@ -9,6 +9,7 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import os
 
 from app import create_app
@@ -17,6 +18,14 @@ app = create_app()
 
 
 def main() -> None:
+    # Configure logging so app-level records — notably ffmpeg capture errors
+    # (app.video.sources.ffmpeg_v4l2) and broadcaster auto-restarts
+    # (app.video.broadcaster) — are written to stderr, which start.sh redirects
+    # into server.log. Without this, only Werkzeug request lines would appear.
+    logging.basicConfig(
+        level=os.environ.get("BABYMONITOR_LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     host = os.environ.get("BABYMONITOR_HOST", "0.0.0.0")
     port = int(os.environ.get("BABYMONITOR_PORT", "8000"))
     # debug is off by default; enable with BABYMONITOR_DEBUG=1 during development.

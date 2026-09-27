@@ -1,5 +1,11 @@
 # Implementation Plan — Raspberry Pi Baby Monitor (POC)
 
+> **Active investigation:** Task 4's live video stream has a latency problem
+> (>1 min lag) and intermittent crash/recover of the camera feed. See
+> [`plans/VIDEO_STREAM_DEBUG.md`](VIDEO_STREAM_DEBUG.md) for the debug plan
+> (what to investigate + findings) and the resulting fix strategy. This should
+> be resolved before Task 7 (robustness), which depends on a stable feed.
+
 ## Problem Statement
 Build a proof-of-concept baby monitor on an existing Raspberry Pi 4 Model B (2GB) that streams live video + audio to a web browser over the local WiFi network. The POC should also demonstrate cry/sound detection alerts. It uses a Logitech Brio USB webcam for the POC, with a clear upgrade path to a dedicated day/night (IR) camera later.
 

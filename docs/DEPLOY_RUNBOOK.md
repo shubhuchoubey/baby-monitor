@@ -42,7 +42,12 @@ the URL.
 Monitor and stop (over SSH):
 
 ```bash
-# Tail the log
+# Follow the live log (preferred: reuses scripts/config.sh)
+./scripts/logs.sh                # tail -f the app log on the Pi
+./scripts/logs.sh -n 200         # last 200 lines, then follow
+./scripts/logs.sh --no-follow    # one-shot dump, no follow
+
+# Tail the log directly
 ssh -i ~/.ssh/id_ed25519_babymonitor babymonitor@babymonitor.local 'tail -f ~/baby-monitor/server.log'
 # Is it running?
 ssh -i ~/.ssh/id_ed25519_babymonitor babymonitor@babymonitor.local 'pgrep -af app.main || echo "not running"'
