@@ -1,6 +1,6 @@
 # Baby Monitor (Raspberry Pi)
 
-A local-network baby monitor running on a Raspberry Pi 4. See `PLAN.md` for the
+A local-network baby monitor running on a Raspberry Pi 4. See `plans/PLAN.md` for the
 full build plan. This README covers running the current app (Task 2: Flask
 skeleton serving a status page).
 
