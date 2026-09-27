@@ -415,4 +415,75 @@ Each phase is independently testable and committable. `make verify` green per ph
 > What was actually changed, measured latency before/after, and any deviation
 > from the proposed strategy.
 
-- _TBD_
+**Implemented (Phases 1–3, 5):** `CameraBroadcaster` (single app-owned ffmpeg +
+latest-frame store), auto-restart with backoff, `mjpeg_stream` reworked to
+subscribe to the shared broadcaster with a bounded `wait_for_newer`, `/video_feed`
+subscribes to the single app-owned broadcaster, `scripts/logs.sh` added.
+`make verify` green (30 tests). Testing note: the Flask test client cannot drain
+an infinite streaming response (it buffers inside `client.get`), so route tests
+use a finite fake broadcaster; the concurrency behaviours are unit-tested against
+`CameraBroadcaster`/`mjpeg_stream` directly (no Flask).
+
+**On-Pi Phase 4 results (2026-09-27):**
+- ✅ **Crash/recover FIXED.** Exactly **one** ffmpeg (`pgrep -xc ffmpeg` = 1)
+  held for 2m+ across multiple browser reconnects (three `GET /video_feed` in the
+  log on one shared ffmpeg PID 5580/PPID 5570). No camera-light-off cycle. The
+  single-shared-opener change did what Part 1.B/D predicted.
+- ⚠️ **Latency IMPROVED but NOT solved:** ~30–45 s (was >1 min). Root cause of
+  the residual lag located via `ss -tni` on the live viewer socket:
+  **`Send-Q ≈ 3.6 MB`, `notsent ≈ 3.5 MB`, `rtt 744 ms`, delivery ~475 kbps.**
+  ~3.5 MB queued in the **kernel TCP send buffer** ÷ ~475 kbps ≈ **~30 s** —
+  matches the observed lag.
+- **Why latest-frame-drop didn't bound it:** the app correctly yields only the
+  newest frame, but each `yield` is accepted **wholesale into the kernel socket
+  send buffer** (the write returns immediately), so ~27 frames' worth queue
+  *downstream* of our drop logic. We drop stale frames *before* the socket; the
+  socket itself hoards them. App-level latest-frame selection cannot reach a
+  buffer the kernel fills on our behalf.
+
+**Deviation from proposed strategy / follow-up needed (Phase 6):** the
+"latest-frame broadcast" is necessary but **insufficient on its own** — it must
+be paired with **backpressure + bitrate reduction** so the kernel can't buffer
+tens of seconds of video:
+1. **Shrink the socket send buffer** (`SO_SNDBUF` ≈ 1–2 frames, e.g. 128 KB) so
+   a full buffer blocks our `yield`, and that backpressure is what actually makes
+   frame-dropping effective (we skip frames while the socket is full).
+2. **Cut the stream bitrate to fit WiFi** — measured WiFi goodput is ~1.2–1.5
+   Mbps, but 720p/15fps ≈ 16 Mbps and even 480p/15fps ≈ 7 Mbps. Lower fps and/or
+   resolution (and/or re-encode to a lower JPEG quality) so produced bitrate
+   approaches the link. This is the "right-size" item, now confirmed **required**,
+   not optional.
+3. Consider dropping frames explicitly when the socket is not writable (pace to
+   the drain rate) rather than relying solely on `SO_SNDBUF` backpressure.
+
+Status: **crash fixed; latency partially fixed — Phase 6 (backpressure +
+bitrate) required to meet the "few seconds" target.**
+
+**WiFi relocation (2026-09-27, before Phase 6):** moving the Pi closer to the
+router raised signal 49→62/100 and link rate 130→270 Mbit/s. Live viewer socket
+then showed **Send-Q ~0.1 MB (was 3.6 MB), rtt 2.5–17 ms (was 744 ms), delivery
+40–59 Mbps (was 475 kbps), ~20 fps received** — the lag effectively disappeared.
+This confirmed the residual latency was bandwidth-driven backlog, not code. It
+made Phase 6 **defensive** (bound latency even if the link degrades) rather than
+blocking.
+
+**Phase 6 implemented & validated on-Pi (2026-09-27):**
+- **Right-sized bitrate:** default fps lowered 15→10 in `factory.py`
+  (env-overridable via `BABYMONITOR_VIDEO_FPS`); confirmed on-Pi the ffmpeg runs
+  `framerate 10`. Tests: `tests/video/test_factory.py`.
+- **Send-buffer backpressure:** new `app/video/backpressure.py` —
+  `cap_send_buffer()` (best-effort `SO_SNDBUF` cap, default 128 KB) applied per
+  connection by `BackpressureRequestHandler`, wired via
+  `app.run(request_handler=...)`. On-Pi the live viewer socket showed
+  **`tb=262144` (256 KB kernel-doubled cap, was multi-MB)**, write buffer
+  `w≈87 KB` (< 1 frame), **`Send-Q 0`**, ~7.5 fps delivered. Tests:
+  `tests/video/test_backpressure.py` (real socket).
+- Still **one ffmpeg** regardless of viewers; `make verify` green (**35 tests**).
+
+Net effect: with the send buffer capped to ~1 frame, a slow link now applies
+backpressure to the generator, so the broadcaster's latest-frame drop bounds
+latency by design — the kernel can no longer hoard seconds of video.
+
+Status: **FIXED — crash resolved (single shared opener) and latency bounded
+(WiFi relocation + Phase 6 backpressure/right-sizing). Latency-bounding holds
+even under a weak link.**

@@ -19,7 +19,9 @@ def get_frame_source() -> FrameSource:
     backend = os.environ.get("BABYMONITOR_CAMERA", "usb").lower()
     width = int(os.environ.get("BABYMONITOR_VIDEO_WIDTH", "1280"))
     height = int(os.environ.get("BABYMONITOR_VIDEO_HEIGHT", "720"))
-    fps = int(os.environ.get("BABYMONITOR_VIDEO_FPS", "15"))
+    # Default fps lowered to 10 (from 15) to cut the produced MJPEG bitrate for
+    # weak WiFi links (Phase 6). Override with BABYMONITOR_VIDEO_FPS.
+    fps = int(os.environ.get("BABYMONITOR_VIDEO_FPS", "10"))
 
     if backend == "usb":
         device = os.environ.get("BABYMONITOR_VIDEO_DEVICE", "/dev/video0")

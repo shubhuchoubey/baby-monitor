@@ -13,6 +13,7 @@ import logging
 import os
 
 from app import create_app
+from app.video.backpressure import BackpressureRequestHandler
 
 app = create_app()
 
@@ -33,7 +34,15 @@ def main() -> None:
     # threaded=True lets the long-lived MJPEG stream run without blocking other
     # requests (status page, health check, a second viewer), and lets a client
     # disconnect promptly trigger the stream generator's cleanup.
-    app.run(host=host, port=port, debug=debug, threaded=True)
+    # The backpressure handler caps each connection's send buffer so a slow link
+    # cannot buffer seconds of video in the kernel (bounds latency; Phase 6).
+    app.run(
+        host=host,
+        port=port,
+        debug=debug,
+        threaded=True,
+        request_handler=BackpressureRequestHandler,
+    )
 
 
 if __name__ == "__main__":
